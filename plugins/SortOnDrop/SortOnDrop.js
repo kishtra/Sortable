@@ -27,7 +27,7 @@ function SortOnDropPlugin() {
 
 			if (!activeSortable?.options.sortOnDrop || target.isEqualNode(dragEl)) {
 				if (validTarget) {
-					setSortIndicator(validTarget, null, options);
+					setSortIndicator(validTarget, options, null);
 					toggleClass(validTarget, options.dropZoneClass, false);
 					validTarget = null;
 				}
@@ -54,7 +54,7 @@ function SortOnDropPlugin() {
 
 			if (target !== validTarget) {
 				if (validTarget) {
-					setSortIndicator(validTarget, null, options);
+					setSortIndicator(validTarget, options, null);
 					toggleClass(validTarget, options.dropZoneClass, false);
 				}
 				validTarget = target;
@@ -66,11 +66,7 @@ function SortOnDropPlugin() {
 
 			if (isOverDropZone) dispatchSortableEvent('dropZoneHover');
 			toggleClass(validTarget, options.dropZoneClass, isOverDropZone);
-			setSortIndicator(
-				validTarget,
-				getDragOverSideFactors.call(this, originalEvent),
-				options
-			);
+			setSortIndicator(validTarget, options, getSideFactors.call(this, originalEvent));
 
 			changed();
 			completed(true);
@@ -79,10 +75,11 @@ function SortOnDropPlugin() {
 		drop({ activeSortable, putSortable, dragEl, dispatchSortableEvent }) {
 			let toSortable = putSortable || this.sortable,
 				options = this.options;
+
 			if (!validTarget) return;
 
 			toggleClass(validTarget, options.dropZoneClass, false);
-			setSortIndicator(validTarget, null, options);
+			setSortIndicator(validTarget, options, null);
 
 			if (isOverDropZone) return dispatchSortableEvent('dropZoneDrop');
 
@@ -106,7 +103,7 @@ function SortOnDropPlugin() {
 	});
 }
 
-function getDragOverSideFactors(originalEvent) {
+function getSideFactors(originalEvent) {
 	let sideFactors = {},
 		dimensions = [],
 		options = this.options,
@@ -124,14 +121,14 @@ function getDragOverSideFactors(originalEvent) {
 			? options.direction.call(this)
 			: options.direction
 	) {
-		case 'vertical':
-			dimensions.push('height');
-			break;
 		case 'horizontal':
 			dimensions.push('width');
 			break;
+		case 'vertical':
+			dimensions.push('height');
+			break;
 		case '2d':
-			dimensions.push('height', 'width');
+			dimensions.push('width', 'height');
 			break;
 		default:
 			throw new Error('Invalid direction');
@@ -150,35 +147,38 @@ function getDragOverSideFactors(originalEvent) {
 	return sideFactors;
 }
 
-function setSortIndicator(target, sideFactors, options) {
+function setSortIndicator(target, options, sideFactors) {
+	let indicateSort;
+
 	switch (options.sortIndicator) {
 		case 'border':
-			setBorder(target);
+			indicateSort = setBorder;
 			break;
 		case 'nudge':
-			let translate = Object.assign({}, defaultPosition),
-				scale = Object.assign({}, defaultScale);
-
-			if (sideFactors)
-				for (const dimension in sideFactors) {
-					scale[dimension] = options.nudge.scaleFactor;
-					translate[dimension] =
-						(originalRect[dimension] *
-							(1 - scale[dimension]) *
-							sideFactors[dimension]) /
-						2;
-				}
-
-			setTransform(target, translate, scale);
+			indicateSort = setNudge;
 			break;
 		default:
 			throw new Error('Invalid sortIndicator');
 	}
+
+	indicateSort(target, options, sideFactors);
 }
 
-function setBorder(target) {}
+function setBorder(target) {
+	console.log(target.style);
+	target.style.borderBottomColor = '#659e33';
+}
 
-function setTransform(target, translate, scale) {
+function setNudge(target, options, sideFactors) {
+	let translate = Object.assign({}, defaultPosition),
+		scale = Object.assign({}, defaultScale);
+
+	for (const dimension in sideFactors) {
+		scale[dimension] = options.nudge.scaleFactor;
+		translate[dimension] =
+			(originalRect[dimension] * (1 - scale[dimension]) * sideFactors[dimension]) / 2;
+	}
+
 	target.style.transform = `translate(${translate.width}px, ${translate.height}px) scale(${scale.width}, ${scale.height})`;
 }
 
