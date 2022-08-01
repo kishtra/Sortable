@@ -1,6 +1,6 @@
 import { toggleClass, index, getRect } from '../../src/utils.js';
 
-let validTarget, originalRect, isOverDropZone;
+let validTarget, originalRect, isOverDropZone, lastSideFactors;
 const initialPosition = { width: 0, height: 0 },
 	initialScale = { width: 1, height: 1 };
 
@@ -11,7 +11,7 @@ function SortOnDropPlugin() {
 			border: {
 				width: '3px',
 				style: 'solid',
-				color: '#fff',
+				color: '#000',
 			},
 			nudge: {
 				scaleFactor: 0.8,
@@ -29,7 +29,7 @@ function SortOnDropPlugin() {
 
 			if (!activeSortable?.options.sortOnDrop || target.isEqualNode(dragEl)) {
 				if (validTarget) {
-					setSortIndicator(validTarget, null, options, defaults);
+					setSortIndicator(options, defaults, null);
 					toggleClass(validTarget, options.dropZoneClass, false);
 					validTarget = null;
 				}
@@ -57,7 +57,7 @@ function SortOnDropPlugin() {
 
 			if (target !== validTarget) {
 				if (validTarget) {
-					setSortIndicator(validTarget, null, options, defaults);
+					setSortIndicator(options, defaults, null);
 					toggleClass(validTarget, options.dropZoneClass, false);
 				}
 				validTarget = target;
@@ -66,12 +66,8 @@ function SortOnDropPlugin() {
 
 			if (isOverDropZone) dispatchSortableEvent('dropZoneHover');
 
-			setSortIndicator(
-				validTarget,
-				getSideFactors(this, originalEvent),
-				options,
-				defaults
-			);
+			setSideFactors(this, originalEvent);
+			setSortIndicator(options, defaults);
 			toggleClass(validTarget, options.dropZoneClass, isOverDropZone);
 
 			changed();
@@ -85,7 +81,7 @@ function SortOnDropPlugin() {
 
 			if (!validTarget) return;
 
-			setSortIndicator(validTarget, null, options, defaults);
+			setSortIndicator(options, defaults, null);
 			toggleClass(validTarget, options.dropZoneClass, false);
 
 			if (isOverDropZone) return dispatchSortableEvent('dropZoneDrop');
@@ -101,7 +97,7 @@ function SortOnDropPlugin() {
 			}
 		},
 		nulling() {
-			validTarget = originalRect = isOverDropZone = null;
+			validTarget = originalRect = isOverDropZone = lastSideFactors = null;
 		},
 	};
 
@@ -110,17 +106,17 @@ function SortOnDropPlugin() {
 	});
 }
 
-function getSideFactors(plugin, originalEvent) {
-	let sideFactors = {},
-		dimensions = [],
+function setSideFactors(plugin, originalEvent) {
+	let dimensions = [],
 		options = plugin.options,
+		borderWidth = +getComputedStyle(validTarget, null).borderWidth.slice(0, -2),
 		frame = {
 			width: (originalRect.width * (1 - options.dropZone)) / 2, // left | right
 			height: (originalRect.height * (1 - options.dropZone)) / 2, // top | bottom
 		},
 		targetOffset = {
-			width: originalEvent.offsetX,
-			height: originalEvent.offsetY,
+			width: originalEvent.offsetX + borderWidth,
+			height: originalEvent.offsetY + borderWidth,
 		};
 
 	switch (
@@ -141,33 +137,37 @@ function getSideFactors(plugin, originalEvent) {
 			throw new Error('Invalid direction');
 	}
 
-	isOverDropZone = true;
-
+	lastSideFactors = {};
 	for (const dimension of dimensions) {
-		if (
-			(targetOffset[dimension] <= frame[dimension] && (sideFactors[dimension] = 1)) ||
+		isOverDropZone =
+			(targetOffset[dimension] <= frame[dimension] &&
+				(lastSideFactors[dimension] = 1)) ||
 			(targetOffset[dimension] >= originalRect[dimension] - frame[dimension] &&
-				(sideFactors[dimension] = -1))
-		)
-			isOverDropZone = false;
+				(lastSideFactors[dimension] = -1))
+				? false
+				: true;
 	}
-	return sideFactors;
 }
 
-function setSortIndicator(target, sideFactors, options, defaults) {
+function setSortIndicator(options, defaults, sideFactors = lastSideFactors) {
+	if (!sideFactors) {
+		setBorder(options, null);
+		setNudge(options, defaults, null);
+	}
+
 	switch (options.sortIndicator) {
 		case 'border':
-			setBorder(target, sideFactors, options);
+			setBorder(options, sideFactors);
 			break;
 		case 'nudge':
-			setNudge(target, sideFactors, options, defaults);
+			setNudge(options, defaults, sideFactors);
 			break;
 		default:
 			throw new Error('Invalid sortIndicator');
 	}
 }
 
-function setBorder(target, sideFactors, options) {
+function setBorder(options, sideFactors) {
 	const borderSides = {
 		borderTop: false,
 		borderBottom: false,
@@ -193,14 +193,15 @@ function setBorder(target, sideFactors, options) {
 	const capitalizeFirstChar = (str) => str[0].toUpperCase() + str.slice(1);
 
 	for (const side in borderSides) {
-		for (const prop in options.border)
-			target.style[side + capitalizeFirstChar(prop)] = borderSides[side]
+		for (const prop in options.border) {
+			validTarget.style[side + capitalizeFirstChar(prop)] = borderSides[side]
 				? options.border[prop]
 				: '';
+		}
 	}
 }
 
-function setNudge(target, sideFactors, options, defaults) {
+function setNudge(options, defaults, sideFactors) {
 	let translate = Object.assign({}, initialPosition),
 		scale = Object.assign({}, initialScale);
 
@@ -214,26 +215,38 @@ function setNudge(target, sideFactors, options, defaults) {
 			(originalRect[dimension] * (1 - scale[dimension]) * sideFactors[dimension]) / 2;
 	}
 
-	target.style.transition = `transform  ${options.nudge.nudgeAnimation}ms ease`;
-	target.style.transform = `translate(${translate.width}px, ${translate.height}px) scale(${scale.width}, ${scale.height})`;
+	validTarget.style.transition = `transform  ${options.nudge.nudgeAnimation}ms ease`;
+	validTarget.style.transform = `translate(${translate.width}px, ${translate.height}px) scale(${scale.width}, ${scale.height})`;
 }
 
-function sortNodes(n1, n2) {
-	let p1 = n1.parentNode,
-		p2 = n2.parentNode,
-		i1,
-		i2;
+function sortNodes(dragEl, target) {
+	let dragElParent = dragEl.parentNode,
+		targetParent = target.parentNode,
+		dragElIndex,
+		targetIndex;
 
-	if (!p1 || !p2 || p1.isEqualNode(n2) || p2.isEqualNode(n1)) return;
+	if (
+		!dragElParent ||
+		!targetParent ||
+		dragElParent.isEqualNode(target) ||
+		targetParent.isEqualNode(dragEl)
+	)
+		return;
 
-	i1 = index(n1);
-	i2 = index(n2);
+	dragElIndex = index(dragEl);
+	targetIndex = index(target);
 
-	if (p1.isEqualNode(p2) && i1 < i2) {
-		i2++;
+	if (
+		(dragElParent.isEqualNode(targetParent) &&
+			dragElIndex < targetIndex &&
+			(lastSideFactors.height < 0 || lastSideFactors.width < 0)) ||
+		lastSideFactors.height < 0 ||
+		lastSideFactors.width < 0
+	) {
+		targetIndex++;
 	}
 
-	p2.insertBefore(n1, p2.children[i2]);
+	targetParent.insertBefore(dragEl, targetParent.children[targetIndex]);
 }
 
 export default SortOnDropPlugin;
